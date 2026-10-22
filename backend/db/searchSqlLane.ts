@@ -70,6 +70,23 @@ const admission = new SearchSqlAdmission();
 let client: ReturnType<typeof createSearchSqlClient> | undefined;
 let closing: Promise<void> | undefined;
 
+/** Observe query activity without exposing SQL text or access to the exclusive pool. */
+export function observeSearchSqlQueries(observer: () => void): () => void {
+  if (!client) throw new Error('Search SQL must be initialized before observing queries.');
+  const observedClient = client;
+  const previousDebug = observedClient.options.debug;
+  let active = true;
+  const debug: Exclude<typeof previousDebug, boolean> = (...args) => {
+    if (typeof previousDebug === 'function') previousDebug.apply(observedClient.options, args);
+    if (active) observer();
+  };
+  observedClient.options.debug = debug;
+  return () => {
+    active = false;
+    if (observedClient.options.debug === debug) observedClient.options.debug = previousDebug;
+  };
+}
+
 export async function searchSql<T>(work: SearchWork, query: (sql: TransactionSql) => Promise<T>): Promise<T> {
   const release = await admission.acquire(work);
   try {
